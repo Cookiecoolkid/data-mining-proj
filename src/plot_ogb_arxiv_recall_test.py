@@ -6,30 +6,50 @@ import time
 from grakel import GraphKernel
 import faiss
 import random
+from ogb.nodeproppred import PygNodePropPredDataset
 
-def load_graph(file_path):
+# 🔽 注册全局允许反序列化的 PyG 类型
+from torch_geometric.data.data import Data, DataEdgeAttr
+from torch.serialization import add_safe_globals
+add_safe_globals([Data, DataEdgeAttr])  # 必须在 PygNodePropPredDataset 初始化前执行
+
+from torch_geometric.datasets import GEDDataset
+import torch
+from sklearn.decomposition import KernelPCA
+from sklearn.impute import SimpleImputer
+
+# 保存原始 torch.load 函数
+_original_torch_load = torch.load
+
+num_subgraphs = 5000
+subgraph_size = 10
+
+# 覆盖 torch.load，默认强制 weights_only=False
+def patched_torch_load(*args, **kwargs):
+    kwargs['weights_only'] = False
+    return _original_torch_load(*args, **kwargs)
+
+# 应用 monkey patch
+torch.load = patched_torch_load
+
+def pyg_to_networkx(data):
     G = nx.Graph()
-    with open(file_path, 'r') as f:
-        for line in f:
-            if line.startswith('#'):
-                continue
-            u, v = map(int, line.strip().split())
-            G.add_edge(u, v)
+    edges = data.edge_index.numpy()
+    for u, v in zip(edges[0], edges[1]):
+        G.add_edge(u, v)
     return G
 
-def load_graph_mod(file_path, max_nodes=100):
-    G = nx.Graph()
-    with open(file_path, 'r') as f:
-        for line in f:
-            if line.startswith('#'):
-                continue
-            u, v = map(int, line.strip().split())
-            # 对节点 ID 取模，将节点映射到 [0, max_nodes-1] 的范围内
-            u_mod = u % max_nodes
-            v_mod = v % max_nodes
-            # 添加边到图中
-            G.add_edge(u_mod, v_mod)
-    return G
+def load_ogbn_arxiv():
+    dataset = PygNodePropPredDataset(name="ogbn-arxiv")
+    split_idx = dataset.get_idx_split()
+
+    data, slices = torch.load(dataset.processed_paths[0])
+    
+    # 假设数据集中只有一个图
+    G = pyg_to_networkx(data)
+    labels = data.y.numpy()  # 获取标签
+    
+    return G, labels, split_idx
 
 def sample_subgraphs(G, num_subgraphs=5000, subgraph_size=10):
     nodes = list(G.nodes())
@@ -48,20 +68,41 @@ def nx_to_grakel(subgraphs):
     gk_graphs = []
     for sg in subgraphs:
         adj_dict = {i: list(sg.neighbors(i)) for i in sg.nodes()}
-        # gk_graphs.append((adj_dict, None))  # Make each element a (graph, label) tuple
         labels = {i: str(i) for i in sg.nodes()}  # 使用节点 ID 的字符串作为标签
         gk_graphs.append((adj_dict, labels))  # 添加标签字典
     return gk_graphs
 
+def kernel_to_embedding(K, dim=128):
+    # 使用 SimpleImputer 填充 NaN 值
+    imputer = SimpleImputer(missing_values=np.nan, strategy='mean')
+    K_imputed = imputer.fit_transform(K)
+    
+    # 使用 KernelPCA 进行降维
+    kpca = KernelPCA(n_components=dim, kernel='precomputed')
+    embedding = kpca.fit_transform(K_imputed)
+    return embedding
+
 def random_walk_embedding(grakel_graphs):
     rw_kernel = GraphKernel(kernel={"name": "random_walk", "with_labels": False}, normalize=True)
     K = rw_kernel.fit_transform(grakel_graphs)
-    return K
+    embeddings = kernel_to_embedding(K, dim=128)  # 使用 KernelPCA 降维
+    return embeddings
 
 def wl_embedding(grakel_graphs):
     wl_kernel = GraphKernel(kernel={"name": "weisfeiler_lehman", "n_iter": 5}, normalize=True)
     K = wl_kernel.fit_transform(grakel_graphs)
-    return K
+    embeddings = kernel_to_embedding(K, dim=128)  # 使用 KernelPCA 降维
+    return embeddings
+
+# def random_walk_embedding(grakel_graphs):
+#     rw_kernel = GraphKernel(kernel={"name": "random_walk", "with_labels": False}, normalize=True)
+#     K = rw_kernel.fit_transform(grakel_graphs)
+#     return K
+
+# def wl_embedding(grakel_graphs):
+#     wl_kernel = GraphKernel(kernel={"name": "weisfeiler_lehman", "n_iter": 5}, normalize=True)
+#     K = wl_kernel.fit_transform(grakel_graphs)
+#     return K
 
 def build_groundtruth(embeddings, query_vectors, k):
     dim = embeddings.shape[1]
@@ -72,6 +113,7 @@ def build_groundtruth(embeddings, query_vectors, k):
 
 def build_index(index_type, embeddings):
     dim = embeddings.shape[1]
+    print("Building index of type:", index_type, "with dimension:", dim)
     if index_type == 'Flat':
         index = faiss.IndexFlatL2(dim)
         index.add(embeddings.astype(np.float32))
@@ -103,6 +145,7 @@ def compute_recall(pred_indices, gt_indices):
 
 def test(index_type, kernel_type, embeddings, query_embeddings, gt_indices, k):
     index = build_index(index_type, embeddings)
+    print(f"Index built for {index_type} with kernel {kernel_type}.")
     start = time.time()
     _, pred_indices = index.search(query_embeddings.astype(np.float32), k)
     end = time.time()
@@ -111,16 +154,16 @@ def test(index_type, kernel_type, embeddings, query_embeddings, gt_indices, k):
     return recall, search_time
 
 if __name__ == "__main__":
-    # graph_path = '/home/cookiecoolkid/datasets/LiveJournal/com-lj.ungraph.txt'
-    # G = load_graph(graph_path)
-    graph_path = '/home/cookiecoolkid/datasets/LiveJournal/graph_small.txt'
-    G = load_graph_mod(graph_path, max_nodes=5974)
+    # 加载 ogbn-arxiv 数据集
+    G, labels, split_idx = load_ogbn_arxiv()
     print("Graph loaded. Nodes:", G.number_of_nodes(), "Edges:", G.number_of_edges())
 
-    # subgraphs = sample_subgraphs(G)
-    subgraphs = sample_subgraphs(G, num_subgraphs=1000, subgraph_size=5)
+    # 采样子图
+
+    subgraphs = sample_subgraphs(G, num_subgraphs, subgraph_size)
     print("Sampled", len(subgraphs), "subgraphs.")
 
+    # 将子图转换为 Grakel 格式
     grakel_graphs = nx_to_grakel(subgraphs)
 
     kernels = {
@@ -128,8 +171,7 @@ if __name__ == "__main__":
         "WL": wl_embedding
     }
 
-    # indices = ["Flat", "NSG", "HNSW", "IVFPQ"]
-    indices = ["Flat", "NSG", "HNSW"]
+    indices = ["Flat", "NSG", "HNSW", "IVFPQ"]
     k = 10
     results = {}
 
@@ -161,6 +203,8 @@ if __name__ == "__main__":
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plt.savefig("recall_vs_time.png")
-    print("Plot saved as recall_vs_time.png")
+    # 构造包含参数的文件名
+    filename = f"recall_vs_time_k{k}_num_subgraphs{num_subgraphs}_subgraph_size{subgraph_size}.png"
+    plt.savefig(filename)
+    print(f"Plot saved as {filename}")
     plt.show()
