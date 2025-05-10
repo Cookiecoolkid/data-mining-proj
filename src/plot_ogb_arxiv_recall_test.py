@@ -22,7 +22,7 @@ from sklearn.impute import SimpleImputer
 _original_torch_load = torch.load
 
 num_subgraphs = 5000
-subgraph_size = 10
+subgraph_size = 20
 
 # 覆盖 torch.load，默认强制 weights_only=False
 def patched_torch_load(*args, **kwargs):
@@ -82,11 +82,27 @@ def kernel_to_embedding(K, dim=128):
     embedding = kpca.fit_transform(K_imputed)
     return embedding
 
+# def random_walk_embedding(grakel_graphs):
+#     rw_kernel = GraphKernel(kernel={"name": "random_walk", "with_labels": False}, normalize=True)
+#     K = rw_kernel.fit_transform(grakel_graphs)
+#     embeddings = kernel_to_embedding(K, dim=128)  # 使用 KernelPCA 降维
+#     return embeddings
+
 def random_walk_embedding(grakel_graphs):
-    rw_kernel = GraphKernel(kernel={"name": "random_walk", "with_labels": False}, normalize=True)
+    rw_kernel = GraphKernel(kernel={"name": "random_walk", "with_labels": False}, normalize=False)
     K = rw_kernel.fit_transform(grakel_graphs)
-    embeddings = kernel_to_embedding(K, dim=128)  # 使用 KernelPCA 降维
+    
+    # 替代 Grakel 内置 normalize 的手动归一化
+    diag = np.sqrt(np.diag(K))
+    norm_matrix = np.outer(diag, diag)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        K_normalized = np.divide(K, norm_matrix)
+        K_normalized[np.isnan(K_normalized)] = 0.0  # 将 NaN 替换为 0
+        K_normalized[np.isinf(K_normalized)] = 0.0  # 将 inf 替换为 0
+
+    embeddings = kernel_to_embedding(K_normalized, dim=128)
     return embeddings
+
 
 def wl_embedding(grakel_graphs):
     wl_kernel = GraphKernel(kernel={"name": "weisfeiler_lehman", "n_iter": 5}, normalize=True)
