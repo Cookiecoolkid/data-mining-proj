@@ -310,6 +310,47 @@ WL-NSG: Recall@10 = 0.5220, Time = 0.62 ms
 WL-HNSW: Recall@10 = 0.6940, Time = 1.47 ms
 WL-IVFPQ: Recall@10 = 0.6110, Time = 10.76 ms
 Plot saved as recall_vs_time_k10_num_subgraphs5000_subgraph_size10.png
+(dm) cookiecoolkid@Cookie:~/course/data-mining/src$ python plot_ogb_arxiv_recall_test.py 
+Graph loaded. Nodes: 169343 Edges: 1157799
+Sampled 5000 subgraphs.
+Processing Kernel: RandomWalk
+/home/cookiecoolkid/course/data-mining/src/plot_ogb_arxiv_recall_test.py:96: RuntimeWarning: invalid value encountered in sqrt
+  diag = np.sqrt(np.diag(K))
+Testing Index: Flat with Kernel: RandomWalk
+Building index of type: Flat with dimension: 128
+Index built for Flat with kernel RandomWalk.
+Testing Index: NSG with Kernel: RandomWalk
+Building index of type: NSG with dimension: 128
+Index built for NSG with kernel RandomWalk.
+Testing Index: HNSW with Kernel: RandomWalk
+Building index of type: HNSW with dimension: 128
+Index built for HNSW with kernel RandomWalk.
+Testing Index: IVFPQ with Kernel: RandomWalk
+Building index of type: IVFPQ with dimension: 128
+Index built for IVFPQ with kernel RandomWalk.
+Processing Kernel: WL
+Testing Index: Flat with Kernel: WL
+Building index of type: Flat with dimension: 128
+Index built for Flat with kernel WL.
+Testing Index: NSG with Kernel: WL
+Building index of type: NSG with dimension: 128
+Index built for NSG with kernel WL.
+Testing Index: HNSW with Kernel: WL
+Building index of type: HNSW with dimension: 128
+Index built for HNSW with kernel WL.
+Testing Index: IVFPQ with Kernel: WL
+Building index of type: IVFPQ with dimension: 128
+Index built for IVFPQ with kernel WL.
+RandomWalk-Flat: Recall@10 = 1.0000, Time = 79.64 ms
+RandomWalk-NSG: Recall@10 = 0.0470, Time = 9.90 ms
+RandomWalk-HNSW: Recall@10 = 0.0550, Time = 9.90 ms
+RandomWalk-IVFPQ: Recall@10 = 0.8760, Time = 19.77 ms
+WL-Flat: Recall@10 = 1.0000, Time = 17.60 ms
+WL-NSG: Recall@10 = 0.5160, Time = 13.79 ms
+WL-HNSW: Recall@10 = 0.7030, Time = 11.88 ms
+WL-IVFPQ: Recall@10 = 0.5780, Time = 4.93 ms
+Plot saved as recall_vs_time_k10_num_subgraphs5000_subgraph_size20.png
+
 
 (dm) cookiecoolkid@Cookie:~/course/data-mining/src$ python plot_ogb_arxiv_recall_test.py 
 Graph loaded. Nodes: 169343 Edges: 1157799
